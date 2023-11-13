@@ -1,0 +1,65 @@
+name: Run tests
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.12"
+
+      # Below will create fresh template in path: minimal_project
+      - name: Generate project from template using cookiecutter
+        run: |
+          pip install cookiecutter
+          python tests/create_minimal_project.py
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      # run tests from folder minimal_project
+      - name: Load cached venv
+        id: cached-poetry-dependencies-template
+        uses: actions/cache@v2
+        with:
+          path: minimal_project/.venv
+          key: venv-${{ runner.os }}-${{ hashFiles('minimal_project/poetry.lock') }}
+
+      - name: Install template minimal dependencies
+        if: steps.cached-poetry-dependencies-template.outputs.cache-hit != 'true'
+        run: |
+          cd minimal_project
+          poetry install --no-interaction --no-root
+
+      - name: Run template minimal flake8 and then tests
+        env:
+          TEST_DATABASE_HOSTNAME: localhost
+          TEST_DATABASE_PASSWORD: postgres
+          TEST_DATABASE_PORT: 5432
+          TEST_DATABASE_USER: postgres
+          TEST_DATABASE_DB: postgres
+        run: |
+          cd minimal_project
+          poetry run ruff app
+          poetry run coverage run -m pytest
